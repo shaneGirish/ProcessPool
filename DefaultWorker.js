@@ -20,11 +20,12 @@ function handleMessage(message, DONT_SEND) {
                 });
             }            
         } else if(message.command === 'load'){
-            eval.bind(root)(fs.readFileSync(message.path, "UTF8"));
+            var result = eval.bind(root)(fs.readFileSync(message.path, "UTF8"));
             if(!DONT_SEND) {
                 process.send({
                     process: process.env.NODE_UNIQUE_ID,
-                    success: true
+                    success: true,
+                    result: result
                 });
             }            
         } else if(message.command === 'kill'){
@@ -36,8 +37,7 @@ function handleMessage(message, DONT_SEND) {
 
             process.send({
                 process: process.env.NODE_UNIQUE_ID,
-                success: true,
-                finished_learning: true
+                success: true
             });
         }
     } catch(err) {

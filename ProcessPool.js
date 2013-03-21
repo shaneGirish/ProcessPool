@@ -16,40 +16,49 @@ fs.fileExistsSync = function(path) {
 }
 
 function ProcessPool(options) {
-    _.assign(this, this.processOptions(options));
+    var self =this;
+    _.assign(self, self.processOptions(options));
 
-    EventEmitter.call(this);
+    EventEmitter.call(self);
 
-    this.processes = [];
-    this.jobs = [];
-    this.lessons = [];
-    this.counter = 0;
+    self.processes = [];
+    self.jobs = [];
+    self.lessons = [];
+    self.counter = 0;
+
+    process.nextTick(function() {
+        self.maintainPool();
+    });
 }
 
 util.inherits(ProcessPool, EventEmitter);
 
 ProcessPool.prototype.any_eval = function(program, callback) {
+    var self = this;
+
     if(typeof program === "function") {
         program = "(" + program.toString() + ")();"
     } else {
         program = program.toString();
     }
 
-    this.jobs.push({
+    self.jobs.push({
         data: {
-            id: ++this.counter,
+            id: ++self.counter,
             command: 'eval',
             program: program
         },
         callback: callback
     });
 
-    this.emit('debug', "A new 'any' job(" + this.counter + ") has been queued.");
+    self.emit('debug', "A new 'any' job(" + self.counter + ") has been queued.");
 
-    this.handleQueue();
+    self.handleQueue();
 };
 
 ProcessPool.prototype.all_eval = function(program, callback) {
+    var self = this;
+
     if(typeof program === "function") {
         program = "(" + program.toString() + ")();"
     } else {
@@ -62,48 +71,50 @@ ProcessPool.prototype.all_eval = function(program, callback) {
         program: program
     };
 
-    if(this.ENABLE_LEARNING) {
-        this.lessons.push(job);
+    if(self.ENABLE_LEARNING) {
+        self.lessons.push(job);
     }
 
-    _.each(this.allActiveProcesses, function(_process) {
-        this.jobs.push({
+    _.each(self.processes, function(_process) {
+        self.jobs.push({
             process: _process.pid,
             data: job,
             callback: callback
         });
     });
 
-    this.emit('debug', "A new 'all' job(" + this.counter + ") has been queued.");
+    self.emit('debug', "A new 'all' job(" + self.counter + ") has been queued.");
 
-    this.handleQueue();
+    self.handleQueue();
 };
 ProcessPool.prototype.all_load = function(absolutePath, callback) {
+    var self = this;
+
     if(!fs.fileExistsSync(absolutePath)) {
         throw "File '" + absolutePath + "' cannot be found."
     }
 
     var job = {
-        id: (++this.counter) + '.all.load',
+        id: (++self.counter) + '.all.load',
         command: 'load',
         path: absolutePath
     };
 
-    if(this.ENABLE_LEARNING) {
-        this.lessons.push(job);
+    if(self.ENABLE_LEARNING) {
+        self.lessons.push(job);
     }
 
-    _.each(this.allActiveProcesses, function(_process) {
-        this.jobs.push({
+    _.each(self.processes, function(_process) {
+        self.jobs.push({
             process: _process.pid,
             data: job,
             callback: callback
         });
     });
 
-    this.emit('debug', "A new 'all' job(" + this.counter + ") has been queued.");
+    self.emit('debug', "A new 'all' job(" + self.counter + ") has been queued.");
 
-    this.handleQueue();
+    self.handleQueue();
 };
 
 ProcessPool.prototype.totalProcesses = function() {
@@ -143,6 +154,7 @@ ProcessPool.prototype.killIdleProcesses = function() {
 
 ProcessPool.prototype.maintainPool = function() {
     if(!this._dying) {
+        this.emit('debug', 'Maintaing Pool');
         var diff = 0;
         if(this.MAINTAIN_POOL_SIZE > 0) {
             diff = this.MAINTAIN_POOL_SIZE - this.totalProcesses();
@@ -151,7 +163,7 @@ ProcessPool.prototype.maintainPool = function() {
         }
 
         if(diff > 0) {
-            for(var i = this.MAINTAIN_POOL_SIZE - this.totalProcesses() ; i > 0 ; i++) {
+            for(var i = this.MAINTAIN_POOL_SIZE - this.totalProcesses() ; i > 0 ; i--) {
                 this.createNewProcess();
             }
         }
@@ -234,17 +246,18 @@ ProcessPool.prototype.createNewProcess = function() {
 ProcessPool.prototype.teach = function(newProcess) {
     var self = this;
     if(this.lessons.length > 0) {
-        newProcess.on('message', function(message) {
+        var tempListener = function(message) {
             if(message.error) {
                 self.emit('debug', 'An error while teaching the new process "' + newProcess.pid + '" with data : ' + JSON.stringify(message));
-            }
-            if(message.finished_learning) {
-                newProcess.removeAllListeners('message');
+            } else {
+                newProcess.removeListener('message', tempListener);
                 delete newProcess._job;
                 this.emit('debug', 'Process (' + newProcess.pid + ') has been activated.');
                 self.handleQueue();
             }
-        });
+        };
+
+        newProcess.on('message', tempListener);
         newProcess._job = {
             command: 'lessons',
             lessons: this.lessons
@@ -285,7 +298,7 @@ ProcessPool.prototype.handleQueue = function() {
     if(this._dying) {
         this.killIdleProcesses();
     } else {
-        this.emit('debug', 'Handling job queue.');
+        this.emit('debug', 'Checking job queue.');
         while(_.find(this.jobs, {_running:undefined})) {
             var idleProcess = this.getIdleProcess();
             if(!idleProcess) {
@@ -297,6 +310,17 @@ ProcessPool.prototype.handleQueue = function() {
     }
 }
 
+ProcessPool.prototype.wrapCallback = function(callback) {
+    return function() {
+        if(callback) {
+            var args = arguments;
+            process.nextTick(function() {
+                callback.apply(this, args);
+            });
+        }
+    };
+}
+
 ProcessPool.prototype.assignWork = function(idleProcess) {
     var job = _.find(this.jobs, {process: idleProcess.pid, _running:undefined});
     if(!job) {
@@ -304,10 +328,10 @@ ProcessPool.prototype.assignWork = function(idleProcess) {
         this.emit('info', 'Job (' + job.data.id + ') has been assigned to process(' + idleProcess.pid + ')');
     }
 
-    job.callback = job.callback || (function(){});
+    job.callback = this.wrapCallback(job.callback);
 
     var self = this;
-    this.emit('debug', 'Starting job on process (' + idleProcess.pid + ')');
+    this.emit('debug', 'Starting job(' + job.data.id + ') on process (' + idleProcess.pid + ')');
     idleProcess.once('message', function(message) {
         if(message.error) {
             self.emit('error', 'An error occured during the job(' + job.data.id + ') on process (' + idleProcess.pid + ') with data : ' + JSON.stringify(message));
