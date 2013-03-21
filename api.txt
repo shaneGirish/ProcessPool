@@ -1,0 +1,24 @@
+var pool = new ProcessPool({
+    MODULE: DefaultWorker,                  // The default JS file to fork the child_process with
+    MAX_PROCESSES: DefaultMaxProcesses,     // The max size of the pool at any time
+                                            // Needs to be more than 0
+    MAX_BACKLOG: DefaultMaxProcesses * 10,  // The maximum size of the backlog of pending jobs
+                                            //TODO// Lacks Implementation
+    MAX_REQUEST_TIME: -1,                   // The maximum time any job can run for before it is terminated
+                                            //TODO// Lacks Implementation
+    ENABLE_LEARNING: 1,                     // Scripts parsed through 'all_eval' and 'all_load' will persist
+                                            // even into new processes that are created after those functions were called
+    MAINTAIN_POOL_SIZE: 0                   // Minimum processes to maintain in the pool at any given time
+                                            // -ve : Maintain pool size of MAX_PROCESSES
+                                            // +ve : Maintain pool size of MAINTAIN_POOL_SIZE
+                                            //   0 : Will not maintain pool size
+});
+
+pool.any_eval(program, callback);
+pool.all_eval(program, callback);
+pool.all_load(absolutePath, callback);
+pool.on(eventType, listener);
+pool.totalProcesses()
+pool.idleProcesses()
+pool.pendingJobs()
+pool.destroy([rudely])
