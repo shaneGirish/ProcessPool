@@ -1,4 +1,4 @@
-var ProcessPool = require(__dirname + '/ProcessPool');
+var ProcessPool = require(__dirname + '/lib/ProcessPool');
 
 var pool = new ProcessPool({
     MIN_POOL_SIZE: 10
