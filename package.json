@@ -1,7 +1,7 @@
 {
     "name": "ProcessPool",
     "description": "",
-    "main": "./ProcessPool",
+    "main": "./lib/ProcessPool",
     "author": "Shane Girish <shaneGirish@gmail.com> (https://github.com/shaneGirish)",
     "version": "0.0.1a",
     "repository": {
